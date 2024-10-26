@@ -1,4 +1,8 @@
 
+#Para iniciar
+
+docker-compose up --build  
+
 # API de Tickets e Usuários
 
 Este projeto fornece uma API para gerenciar tickets e usuários, permitindo a criação, atualização e visualização de tickets e a criação e autenticação de usuários.
