@@ -11,9 +11,6 @@ app = FastAPI()
 # Configuração do cliente HTTP
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:3000")  # Alterado para 'backend'
 
-# (restante do código permanece o mesmo)
-
-
 # Modelos Pydantic
 class Status(int, Enum):
     Pending = 0
@@ -50,7 +47,12 @@ async def get_http_client():
 # 1. Retornar lista de tickets abertos, ordenados por prioridade (maior primeiro)
 @app.get("/tickets/open", response_model=List[Ticket])
 async def get_open_tickets(client: httpx.AsyncClient = Depends(get_http_client)):
+    print("\n[GET /tickets/open] Enviando requisição GET para o backend:")
+    print(f"URL: {BACKEND_URL}/tickets/abertos")
     response = await client.get("/tickets/abertos")
+    print("[GET /tickets/open] Resposta recebida do backend:")
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 200:
         tickets_data = response.json()
         tickets = [Ticket(**item) for item in tickets_data]
@@ -63,14 +65,24 @@ async def get_open_tickets(client: httpx.AsyncClient = Depends(get_http_client))
 @app.post("/register")
 async def create_user(pessoa: Pessoa, client: httpx.AsyncClient = Depends(get_http_client)):
     # Verificar se o usuário já existe
+    print("\n[POST /register] Verificando se o usuário existe:")
+    print(f"GET {BACKEND_URL}/usuarios/login/{pessoa.login}")
     response = await client.get(f"/usuarios/login/{pessoa.login}")
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 200:
         raise HTTPException(status_code=400, detail="Usuário já existe")
     elif response.status_code != 204:
         # Se o status não for 204 (No Content), pode indicar um erro
         raise HTTPException(status_code=response.status_code, detail="Erro ao verificar usuário")
     # Criar o usuário
-    response = await client.post("/usuarios", json=pessoa.dict(by_alias=True))
+    user_data = pessoa.dict(by_alias=True)
+    print("[POST /register] Criando novo usuário:")
+    print(f"POST {BACKEND_URL}/usuarios")
+    print(f"Dados enviados: {user_data}")
+    response = await client.post("/usuarios", json=user_data)
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 201:
         return {"message": "Usuário criado com sucesso"}
     raise HTTPException(status_code=response.status_code, detail="Erro ao criar usuário")
@@ -78,8 +90,11 @@ async def create_user(pessoa: Pessoa, client: httpx.AsyncClient = Depends(get_ht
 # 3. Autenticar usuário e retornar dados
 @app.post("/login")
 async def authenticate_user(login: str, senha: str, client: httpx.AsyncClient = Depends(get_http_client)):
+    print("\n[POST /login] Autenticando usuário:")
+    print(f"GET {BACKEND_URL}/usuarios/login/{login}")
     response = await client.get(f"/usuarios/login/{login}")
-    print(f"/usuarios/login/{login}")
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 200:
         pessoa_data = response.json()
         pessoa = Pessoa(**pessoa_data)
@@ -95,14 +110,22 @@ async def authenticate_user(login: str, senha: str, client: httpx.AsyncClient = 
 # 4. Atribuir um ticket a um usuário e atualizar o status
 @app.put("/tickets/assign")
 async def assign_ticket(ticket_id: int, user_id: int, client: httpx.AsyncClient = Depends(get_http_client)):
-    # Obter o ticket atual
+    print("\n[PUT /tickets/assign] Atribuindo ticket:")
+    print(f"Obtendo ticket {ticket_id}")
+    print(f"GET {BACKEND_URL}/tickets/{ticket_id}")
     response = await client.get(f"/tickets/{ticket_id}")
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 200:
         ticket_data = response.json()
         ticket_data["ID_pessoa"] = user_id
         ticket_data["Status"] = Status.InProgress.value
-        # Atualizar o ticket
+        print("Atualizando ticket com novos dados:")
+        print(f"PUT {BACKEND_URL}/tickets/{ticket_id}")
+        print(f"Dados enviados: {ticket_data}")
         update_response = await client.put(f"/tickets/{ticket_id}", json=ticket_data)
+        print(f"Código de status: {update_response.status_code}")
+        print(f"Conteúdo da resposta: {update_response.text}\n")
         if update_response.status_code == 200:
             return {"message": "Ticket atribuído com sucesso"}
         else:
@@ -113,7 +136,11 @@ async def assign_ticket(ticket_id: int, user_id: int, client: httpx.AsyncClient 
 # 5. Ver todos os tickets atribuídos a um usuário
 @app.get("/tickets/user/{user_id}", response_model=List[Ticket])
 async def get_tickets_by_user(user_id: int, client: httpx.AsyncClient = Depends(get_http_client)):
+    print(f"\n[GET /tickets/user/{user_id}] Obtendo tickets atribuídos ao usuário {user_id}")
+    print(f"GET {BACKEND_URL}/tickets/usuario/{user_id}")
     response = await client.get(f"/tickets/usuario/{user_id}")
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 200:
         tickets_data = response.json()
         tickets = [Ticket(**item) for item in tickets_data]
@@ -123,7 +150,11 @@ async def get_tickets_by_user(user_id: int, client: httpx.AsyncClient = Depends(
 # 6. Mostrar todos os tickets, independente do status
 @app.get("/tickets", response_model=List[Ticket])
 async def get_all_tickets(client: httpx.AsyncClient = Depends(get_http_client)):
+    print("\n[GET /tickets] Obtendo todos os tickets")
+    print(f"GET {BACKEND_URL}/tickets")
     response = await client.get("/tickets")
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 200:
         tickets_data = response.json()
         tickets = [Ticket(**item) for item in tickets_data]
@@ -137,7 +168,12 @@ async def create_ticket(ticket: Ticket, client: httpx.AsyncClient = Depends(get_
     ticket_data = ticket.dict(by_alias=True, exclude_unset=True)
     # Definir status inicial como Pending (0)
     ticket_data["Status"] = Status.Pending.value
+    print("\n[POST /tickets] Criando novo ticket:")
+    print(f"POST {BACKEND_URL}/tickets")
+    print(f"Dados enviados: {ticket_data}")
     response = await client.post("/tickets", json=ticket_data)
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 201:
         return {"message": "Ticket criado com sucesso"}
     raise HTTPException(status_code=response.status_code, detail="Erro ao criar ticket")
@@ -145,13 +181,21 @@ async def create_ticket(ticket: Ticket, client: httpx.AsyncClient = Depends(get_
 # 8. Finalizar ticket (status = 2)
 @app.put("/tickets/complete/{ticket_id}")
 async def complete_ticket(ticket_id: int, client: httpx.AsyncClient = Depends(get_http_client)):
-    # Obter o ticket atual
+    print(f"\n[PUT /tickets/complete/{ticket_id}] Finalizando ticket {ticket_id}")
+    print(f"Obtendo ticket {ticket_id}")
+    print(f"GET {BACKEND_URL}/tickets/{ticket_id}")
     response = await client.get(f"/tickets/{ticket_id}")
+    print(f"Código de status: {response.status_code}")
+    print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 200:
         ticket_data = response.json()
         ticket_data["Status"] = Status.Resolved.value
-        # Atualizar o ticket
+        print("Atualizando ticket com novo status:")
+        print(f"PUT {BACKEND_URL}/tickets/{ticket_id}")
+        print(f"Dados enviados: {ticket_data}")
         update_response = await client.put(f"/tickets/{ticket_id}", json=ticket_data)
+        print(f"Código de status: {update_response.status_code}")
+        print(f"Conteúdo da resposta: {update_response.text}\n")
         if update_response.status_code == 200:
             return {"message": "Ticket finalizado com sucesso"}
         else:
