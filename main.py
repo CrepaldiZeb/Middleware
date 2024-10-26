@@ -12,10 +12,38 @@ app = FastAPI()
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:3000")  # Alterado para 'backend'
 
 # Modelos Pydantic
+
+# Enum para Status
 class Status(int, Enum):
     Pending = 0
     InProgress = 1
     Resolved = 2
+
+# Modelos de Entrada
+class CreateUser(BaseModel):
+    login: str = Field(alias="Login")
+    senha: str = Field(alias="Senha")
+
+    class Config:
+        populate_by_name = True  # Atualizado para Pydantic v2
+
+class CreateTicket(BaseModel):
+    titulo: str = Field(alias="Titulo")
+    descricao: str = Field(alias="Descricao")
+    prioridade: int = Field(alias="Prioridade")
+
+    class Config:
+        populate_by_name = True
+
+# Modelos de Saída
+class User(BaseModel):
+    id: Optional[int] = Field(default=None, alias="ID")
+    login: str = Field(alias="Login")
+    senha: str = Field(alias="Senha")
+    adm: bool = Field(default=False, alias="ADM")
+
+    class Config:
+        populate_by_name = True
 
 class Ticket(BaseModel):
     id: Optional[int] = Field(default=None, alias="ID")
@@ -26,16 +54,7 @@ class Ticket(BaseModel):
     status: Status = Field(default=Status.Pending, alias="Status")
 
     class Config:
-        allow_population_by_field_name = True
-
-class Pessoa(BaseModel):
-    id: Optional[int] = Field(default=None, alias="ID")
-    login: str = Field(alias="Login")
-    senha: str = Field(alias="Senha")
-    adm: bool = Field(default=False, alias="ADM")
-
-    class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 # Cliente HTTP assíncrono
 async def get_http_client():
@@ -61,35 +80,29 @@ async def get_open_tickets(client: httpx.AsyncClient = Depends(get_http_client))
         return tickets_sorted
     raise HTTPException(status_code=response.status_code, detail="Erro ao obter tickets abertos")
 
-# 2. Criar um usuário com validação
+# 2. Criar um usuário sem verificação prévia
 @app.post("/register")
-async def create_user(pessoa: Pessoa, client: httpx.AsyncClient = Depends(get_http_client)):
-    # Verificar se o usuário já existe
-    print("\n[POST /register] Verificando se o usuário existe:")
-    print(f"GET {BACKEND_URL}/usuarios/login/{pessoa.login}")
-    response = await client.get(f"/usuarios/login/{pessoa.login}")
-    print(f"Código de status: {response.status_code}")
-    print(f"Conteúdo da resposta: {response.text}\n")
-    if response.status_code == 200:
-        raise HTTPException(status_code=400, detail="Usuário já existe")
-    elif response.status_code != 204:
-        # Se o status não for 204 (No Content), pode indicar um erro
-        raise HTTPException(status_code=response.status_code, detail="Erro ao verificar usuário")
-    # Criar o usuário
-    user_data = pessoa.dict(by_alias=True)
-    print("[POST /register] Criando novo usuário:")
+async def create_user(user_data: CreateUser, client: httpx.AsyncClient = Depends(get_http_client)):
+    user_payload = user_data.dict(by_alias=True)
+    print("\n[POST /register] Criando novo usuário:")
     print(f"POST {BACKEND_URL}/usuarios")
-    print(f"Dados enviados: {user_data}")
-    response = await client.post("/usuarios", json=user_data)
+    print(f"Dados enviados: {user_payload}")
+    response = await client.post("/usuarios", json=user_payload)
     print(f"Código de status: {response.status_code}")
     print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 201:
-        return {"message": "Usuário criado com sucesso"}
-    raise HTTPException(status_code=response.status_code, detail="Erro ao criar usuário")
+        return {"message": "Usuário criado com sucesso!"}
+    elif response.status_code == 400:
+        error_message = response.json().get("error", "Erro ao criar usuário")
+        raise HTTPException(status_code=400, detail=error_message)
+    else:
+        raise HTTPException(status_code=response.status_code, detail="Erro ao criar usuário")
 
 # 3. Autenticar usuário e retornar dados
 @app.post("/login")
-async def authenticate_user(login: str, senha: str, client: httpx.AsyncClient = Depends(get_http_client)):
+async def authenticate_user(user_data: CreateUser, client: httpx.AsyncClient = Depends(get_http_client)):
+    login = user_data.login
+    senha = user_data.senha
     print("\n[POST /login] Autenticando usuário:")
     print(f"GET {BACKEND_URL}/usuarios/login/{login}")
     response = await client.get(f"/usuarios/login/{login}")
@@ -97,12 +110,12 @@ async def authenticate_user(login: str, senha: str, client: httpx.AsyncClient = 
     print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 200:
         pessoa_data = response.json()
-        pessoa = Pessoa(**pessoa_data)
-        if pessoa.senha == senha:
-            return pessoa
+        user = User(**pessoa_data)
+        if user.senha == senha:
+            return user
         else:
             raise HTTPException(status_code=401, detail="Senha incorreta")
-    elif response.status_code == 204:
+    elif response.status_code == 404:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     else:
         raise HTTPException(status_code=response.status_code, detail="Erro ao autenticar usuário")
@@ -163,20 +176,18 @@ async def get_all_tickets(client: httpx.AsyncClient = Depends(get_http_client)):
 
 # 7. Criar um ticket
 @app.post("/tickets")
-async def create_ticket(ticket: Ticket, client: httpx.AsyncClient = Depends(get_http_client)):
-    # Excluir campos não necessários para a criação
-    ticket_data = ticket.dict(by_alias=True, exclude_unset=True)
-    # Definir status inicial como Pending (0)
-    ticket_data["Status"] = Status.Pending.value
+async def create_ticket(ticket_data: CreateTicket, client: httpx.AsyncClient = Depends(get_http_client)):
+    payload = ticket_data.dict(by_alias=True)
     print("\n[POST /tickets] Criando novo ticket:")
     print(f"POST {BACKEND_URL}/tickets")
-    print(f"Dados enviados: {ticket_data}")
-    response = await client.post("/tickets", json=ticket_data)
+    print(f"Dados enviados: {payload}")
+    response = await client.post("/tickets", json=payload)
     print(f"Código de status: {response.status_code}")
     print(f"Conteúdo da resposta: {response.text}\n")
     if response.status_code == 201:
-        return {"message": "Ticket criado com sucesso"}
-    raise HTTPException(status_code=response.status_code, detail="Erro ao criar ticket")
+        return {"message": "Ticket criado com sucesso!"}
+    else:
+        raise HTTPException(status_code=response.status_code, detail="Erro ao criar ticket")
 
 # 8. Finalizar ticket (status = 2)
 @app.put("/tickets/complete/{ticket_id}")
